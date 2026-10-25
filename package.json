@@ -1,0 +1,39 @@
+{
+  "name": "my-postiz",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "prisma generate && nuxt prepare",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "worker": "node --env-file=.env worker/index.js",
+    "dev:all": "concurrently -k -n web,worker -c blue,magenta \"npm run dev\" \"npm run worker\"",
+    "test": "node --test",
+    "reset-password": "node --env-file=.env scripts/reset-password.mjs"
+  },
+  "dependencies": {
+    "@pinia/nuxt": "^0.5.5",
+    "@prisma/client": "^5.22.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "busboy": "^1.6.0",
+    "fast-xml-parser": "^5.11.2",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
+    "image-size": "^2.0.4",
+    "iron-webcrypto": "^1.2.1",
+    "nuxt": "^3.15.4",
+    "nuxt-auth-utils": "^0.5.7",
+    "opentype.js": "^2.0.0",
+    "pinia": "^2.3.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@nuxtjs/tailwindcss": "^6.13.1",
+    "concurrently": "^9.1.2",
+    "prisma": "^5.22.0"
+  }
+}

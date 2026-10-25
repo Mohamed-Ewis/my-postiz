@@ -1,0 +1,212 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Switch to "postgresql" later; enums are stored as strings to stay portable.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String          @id @default(cuid())
+  email        String          @unique
+  name         String?
+  passwordHash String
+  locale       String          @default("ar")
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  accounts     SocialAccount[]
+  posts        Post[]
+  media        Media[]
+  feeds        Feed[]
+  videoJobs    VideoJob[]
+  tags         Tag[]
+  templates    Template[]
+  presets      DesignPreset[]
+}
+
+model SocialAccount {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       String       // facebook | instagram | linkedin | mock ...
+  externalId     String
+  name           String
+  username       String?
+  avatar         String?
+  accessToken    String       // AES-256-GCM encrypted
+  refreshToken   String?      // AES-256-GCM encrypted
+  tokenExpiresAt DateTime?
+  refreshNeeded  Boolean      @default(false)
+  disabled       Boolean      @default(false)
+  postingTimes   String       @default("[]") // JSON array, e.g. [{"time":540}]
+  meta           String       @default("{}") // JSON provider extras
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  targets        PostTarget[]
+
+  @@unique([userId, provider, externalId])
+}
+
+model Post {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String
+  mediaIds  String       @default("[]") // JSON array of Media ids
+  state     String       @default("DRAFT") // DRAFT | QUEUE | PUBLISHED | ERROR
+  publishAt DateTime?
+  group     String?      // groups posts created together
+  tagIds    String       @default("[]") // JSON array of Tag ids
+  firstComment String?
+  source    String?      // "feed:<id>" for AutoPost
+  error     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  targets   PostTarget[]
+
+  @@index([state, publishAt])
+}
+
+model PostTarget {
+  id          String        @id @default(cuid())
+  postId      String
+  post        Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  content     String?       // per-channel override
+  settings    String        @default("{}")
+  state       String        @default("QUEUE") // DRAFT | QUEUE | PUBLISHING | PROCESSING | PUBLISHED | ERROR
+  attempts    Int           @default(0)
+  analytics   String?       // JSON snapshot
+  analyticsAt DateTime?
+  commentId   String?
+  nextAttemptAt DateTime?
+  lockedAt    DateTime?
+  releaseId   String?
+  releaseUrl  String?
+  error       String?
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([postId, accountId])
+  @@index([state, nextAttemptAt])
+}
+
+model Media {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  path      String   // relative to MEDIA_DIR
+  mimeType  String
+  type      String   @default("image") // image | video | other
+  size      Int      @default(0)
+  duration  Float?   // seconds (videos, when known)
+  publicUrl String?  // later: tunnel / R2 URL for Instagram
+  thumbnail String?  // relative path of a JPG preview (videos)
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now())
+}
+
+model Feed {
+  id            String     @id @default(cuid())
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  url           String
+  type          String     @default("rss") // rss (RSS/Atom) | json
+  config        String     @default("{}") // json: itemsPath, titleField, linkField, summaryField, imageField
+  accountIds    String     @default("[]")
+  aiRewrite     Boolean    @default(true)
+  language      String     @default("ar")
+  mode          String     @default("draft") // draft | queue
+  videoMode     Boolean    @default(false)   // render a short video per item before posting
+  videoAspect   String     @default("9:16")
+  intervalMin   Int        @default(30)
+  enabled       Boolean    @default(true)
+  lastFetchedAt DateTime?
+  lastError     String?
+  createdAt     DateTime   @default(now())
+  items         FeedItem[]
+}
+
+model FeedItem {
+  id        String   @id @default(cuid())
+  feedId    String
+  feed      Feed     @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  guid      String
+  link      String?
+  title     String?
+  postId    String?
+  createdAt DateTime @default(now())
+
+  @@unique([feedId, guid])
+}
+
+model Tag {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  color  String @default("#6366f1")
+
+  @@unique([userId, name])
+}
+
+model Template {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  content   String
+  kind      String   @default("snippet") // snippet | signature
+  createdAt DateTime @default(now())
+}
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model VideoJob {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind          String   @default("render") // render (local FFmpeg) | ai (cloud provider)
+  title         String   @default("")
+  state         String   @default("QUEUED") // QUEUED | RENDERING | DONE | ERROR
+  progress      Int      @default(0)
+  stage         String?
+  spec          String   @default("{}") // JSON
+  provider      String?
+  externalId    String?  // cloud request id
+  externalData  String?  // JSON (status/response URLs)
+  outputMediaId String?
+  postId        String?  // AutoPost: attach output to this post when done
+  error         String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([state, kind])
+}
+
+/// User-saved design presets (built-in presets live in code: server/templates/presets.js).
+model DesignPreset {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  kind      String   @default("poster") // poster | video
+  data      String   // JSON: templateId, category, size, lang, headline, subtitle, stat, source, focus, accent, font, mediaId, starterPhoto
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, kind])
+}

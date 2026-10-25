@@ -1,0 +1,7 @@
+node_modules
+.nuxt
+.output
+.env
+prisma/*.db
+prisma/*.db-journal
+storage
