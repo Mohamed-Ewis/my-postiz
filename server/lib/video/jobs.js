@@ -1,10 +1,7 @@
-// Video job runner (used by the worker). Local renders run one at a time in the background; AI jobs are polled.
-import { writeFile } from 'node:fs/promises'
+// Video job runner (used by the worker). Reel renders run one at a time in the background.
 import { prisma } from '../../utils/db.js'
-import { createMediaFromBuffer, safeMediaPath } from '../media.js'
 import { nextFreeSlot } from '../slots.js'
-import { renderVideo } from './render.js'
-import { getVideoProvider } from '../../video-providers/index.js'
+import { renderVideo, UNSUPPORTED_JOB } from './render.js'
 
 const parse = (v, d) => { try { return v ? JSON.parse(v) : d } catch { return d } }
 let rendering = null
@@ -35,6 +32,8 @@ async function fail (job, e) {
 /** Mark jobs left RENDERING by a crashed worker. */
 export async function recoverVideoJobs () {
   await prisma.videoJob.updateMany({ where: { state: 'RENDERING', kind: 'render' }, data: { state: 'ERROR', error: 'Worker restarted during render — press Render again', stage: null } })
+  // Old AI-video jobs (fal.ai) are no longer processed.
+  await prisma.videoJob.updateMany({ where: { kind: { not: 'render' }, state: { in: ['QUEUED', 'RENDERING'] } }, data: { state: 'ERROR', error: UNSUPPORTED_JOB, stage: null } })
 }
 
 export async function processVideoJobs () {
@@ -62,42 +61,6 @@ export async function processVideoJobs () {
     }
   }
 
-  // AI jobs: submit queued ones, poll running ones.
-  const ai = await prisma.videoJob.findMany({ where: { kind: 'ai', state: { in: ['QUEUED', 'RENDERING'] } }, take: 10 })
-  for (const job of ai) {
-    n++
-    try {
-      const provider = getVideoProvider(job.provider || 'fal')
-      if (!provider.isConfigured()) throw new Error(`${provider.name}: ${provider.envVars.join(', ')} missing in .env`)
-      if (job.state === 'QUEUED') {
-        const spec = parse(job.spec, {})
-        let imagePath = null; let imageMime = null
-        if (spec.imageMediaId) {
-          const m = await prisma.media.findFirst({ where: { id: spec.imageMediaId, userId: job.userId } })
-          if (m) { imagePath = safeMediaPath(m.path); imageMime = m.mimeType }
-        }
-        const r = await provider.submit({ prompt: spec.prompt, imagePath, imageMime, aspect: spec.aspect || '9:16', duration: spec.duration || 5 })
-        await prisma.videoJob.update({ where: { id: job.id }, data: { state: 'RENDERING', startedAt: new Date(), externalId: r.externalId, externalData: JSON.stringify(r.data), progress: 3, stage: 'Submitted' } })
-        continue
-      }
-      const s = await provider.status({ externalId: job.externalId, data: parse(job.externalData, {}) })
-      if (s.state === 'PENDING') {
-        await prisma.videoJob.update({ where: { id: job.id }, data: { progress: Math.max(job.progress, s.progress || job.progress), stage: 'Generating' } })
-        if (Date.now() - job.createdAt.getTime() > 60 * 60 * 1000) await fail(job, new Error('AI video timed out (60 min)'))
-        continue
-      }
-      if (s.state === 'ERROR') { await fail(job, new Error(s.error)); continue }
-      const res = await fetch(s.videoUrl)
-      if (!res.ok) throw new Error(`Download failed ${res.status}`)
-      const buf = Buffer.from(await res.arrayBuffer())
-      const media = await createMediaFromBuffer(job.userId, buf, `ai-video-${Date.now()}.mp4`, 'video/mp4')
-      await finish(job, media)
-    } catch (e) {
-      // Network blips while polling: keep trying; anything else fails the job.
-      if (job.state === 'RENDERING' && (e.name === 'TypeError' || (e.status >= 500))) continue
-      await fail(job, e)
-    }
-  }
   return n
 }
 

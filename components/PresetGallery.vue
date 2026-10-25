@@ -25,8 +25,7 @@
       </div>
       <div v-if="!data.presets.length" class="w-full rounded-xl border-2 border-dashed p-6 text-center text-sm text-slate-500">
         <p class="text-2xl mb-1">⭐</p>
-        <p v-if="kind === 'video'">{{ ui.l('لسه مفيش قوالب فيديو محفوظة. اختار «قالب التصميم» في المونتاج المحلي، وبعدين اضغط «⭐ احفظ كقالب» عشان يظهر هنا.', 'No saved video presets yet. Choose a design template in the local montage, then press “⭐ Save as preset” and it will show up here.') }}</p>
-        <p v-else>{{ ui.l('لسه مفيش قوالب. اضغط «⭐ احفظ التصميم كقالب».', 'No presets yet. Press “⭐ Save design as preset”.') }}</p>
+        <p>{{ ui.l('لسه مفيش قوالب. اضغط «⭐ احفظ التصميم كقالب».', 'No presets yet. Press “⭐ Save design as preset”.') }}</p>
         <slot name="empty-action" />
       </div>
       <p v-else-if="!shown.length" class="text-sm text-slate-500 p-4">{{ ui.l('مفيش قوالب بالفلتر ده', 'No presets match') }}</p>

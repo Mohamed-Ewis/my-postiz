@@ -5,8 +5,9 @@ import { generateText } from './ai.js'
 import { nextFreeSlot } from './slots.js'
 import { createMediaFromBuffer, safeMediaPath } from './media.js'
 import { exportPoster } from './design.js'
-import { generateScript } from './video/script.js'
-import { aiInfo } from './ai.js'
+import { REEL_ID, normalizeReelSpec } from './video/reel.js'
+import { NEWS_CATEGORIES, feedMatchesCategory } from './newsSearch.js'
+import { brandCategory } from '../templates/brand/alkol.js'
 
 const FIRST_RUN_MAX = 3
 const parse = (v, d) => { try { return v ? JSON.parse(v) : d } catch { return d } }
@@ -105,14 +106,14 @@ export async function processFeed (feed) {
     }
     let media = item.image ? await downloadImage(feed.userId, item.image) : null
     const design = parse(feed.config, {}).design
-    if (design?.category && !feed.videoMode) {
+    if (design?.category && !(feed.videoMode && media)) {
       // Branded news card: the feed photo (if any) goes into the template, the poster becomes the post media.
       try {
         media = await exportPoster(feed.userId, { ...design, headline: item.title, subtitle: '', source: feed.name, lang: feed.language },
           media ? { imagePath: safeMediaPath(media.path), imageMime: media.mimeType } : {})
       } catch (e) { feed.lastError = `Poster: ${e.message}` }
     }
-    if (feed.videoMode) { await queueFeedVideo(feed, item, content, media, accountIds); created++; continue }
+    if (feed.videoMode && media) { await queueFeedVideo(feed, item, content, media, accountIds); created++; continue }
     const queue = feed.mode === 'queue' && accountIds.length
     const publishAt = queue ? await nextFreeSlot(accountIds) : null
     const state = queue && publishAt ? 'QUEUE' : 'DRAFT'
@@ -130,11 +131,31 @@ export async function processFeed (feed) {
   return created
 }
 
+/** Reel category for a feed: its design category (if it maps to a reel category), else guessed from name/URL, else trend. */
+export function feedReelCategory (feed) {
+  const c = parse(feed.config, {}).design?.category
+  const mapped = c ? brandCategory(c) : null
+  if (mapped && NEWS_CATEGORIES.includes(mapped)) return mapped
+  return NEWS_CATEGORIES.find(k => k !== 'breaking' && feedMatchesCategory(feed, k)) || 'trend'
+}
+
+/** One-item "الكل" reel spec from a feed item (title + first sentence of the summary over the item photo). */
+export function feedReelSpec (feed, item, mediaId) {
+  const summary = String(item.summary || '').trim()
+  const body = (summary.match(/^[^.!?؟\n]{20,}[.!?؟]/)?.[0] || summary).slice(0, 220)
+  return normalizeReelSpec({
+    template: REEL_ID, category: feedReelCategory(feed),
+    items: [{ mediaId, title: item.title, body: body === item.title ? '' : body }],
+    afterRender: feed.mode === 'queue' ? 'queue' : 'draft'
+  })
+}
+
 /**
- * "Make video" mode: post is created as DRAFT now; a render job attaches the video and
- * (in queue mode) releases it into the next free slot when rendering finishes.
+ * "Make video" mode (items with a photo): post is created as DRAFT now; a news-reel render job attaches the
+ * video and (in queue mode) releases it into the next free slot when rendering finishes.
  */
 async function queueFeedVideo (feed, item, content, media, accountIds) {
+  const spec = feedReelSpec(feed, item, media.id)
   const post = await prisma.post.create({
     data: {
       userId: feed.userId, content, state: 'DRAFT', source: `feed:${feed.id}`,
@@ -142,23 +163,8 @@ async function queueFeedVideo (feed, item, content, media, accountIds) {
     }
   })
   await prisma.feedItem.update({ where: { feedId_guid: { feedId: feed.id, guid: item.guid } }, data: { postId: post.id } })
-  let scenes
-  if (aiInfo().hasKey) {
-    try {
-      const s = await generateScript({ topic: `${item.title}\n\n${item.summary || ''}`, lang: feed.language, scenes: 3, aspect: feed.videoAspect })
-      scenes = s.scenes.map((sc, i) => ({ text: sc.text, narration: sc.narration, duration: sc.duration, ...(i === 0 && media ? { mediaId: media.id } : { imagePrompt: sc.imagePrompt }) }))
-    } catch {}
-  }
-  if (!scenes) {
-    // No AI: title over the feed image (or a title card), then summary.
-    scenes = [{ text: item.title, duration: 4, ...(media ? { mediaId: media.id } : {}) }]
-    if (item.summary) scenes.push({ text: item.summary.slice(0, 160), duration: 5, ...(media ? { mediaId: media.id } : {}) })
-  }
   await prisma.videoJob.create({
-    data: {
-      userId: feed.userId, kind: 'render', title: item.title?.slice(0, 120) || 'feed video', postId: post.id,
-      spec: JSON.stringify({ aspect: feed.videoAspect, scenes, transition: { type: 'fade', duration: 0.6 }, lang: feed.language, design: parse(feed.config, {}).design ? { ...parse(feed.config, {}).design, source: feed.name } : null, afterRender: feed.mode === 'queue' ? 'queue' : 'draft' })
-    }
+    data: { userId: feed.userId, kind: 'render', title: item.title?.slice(0, 120) || 'feed reel', postId: post.id, spec: JSON.stringify(spec) }
   })
 }
 

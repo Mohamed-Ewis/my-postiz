@@ -31,8 +31,7 @@
           <option value="draft">{{ ui.l('مسودة للمراجعة', 'Draft for review') }}</option>
           <option value="queue">{{ ui.l('جدولة تلقائية على أقرب ميعاد', 'Auto-queue next free slot') }}</option>
         </select>
-        <label class="flex items-center gap-2"><input v-model="form.videoMode" type="checkbox"> 🎬 {{ ui.l('اعمل فيديو قصير لكل خبر', 'Make a short video per item') }}</label>
-        <select v-if="form.videoMode" v-model="form.videoAspect" class="rounded-lg border px-2 py-1"><option>9:16</option><option>1:1</option><option>16:9</option></select>
+        <label class="flex items-center gap-2" :title="ui.l('ريل «الكل» 9:16 لكل خبر فيه صورة — التصنيف من قالب التصميم أو من اسم المصدر', 'A 9:16 news reel per item with a photo — category from the design template or feed name')"><input v-model="form.videoMode" type="checkbox"> 🎬 {{ ui.l('اعمل ريل أخبار لكل خبر', 'Make a news reel per item') }}</label>
         <select :value="form.config.design?.category || ''" class="rounded-lg border px-2 py-1" @change="setDesignCat($event.target.value)">
           <option value="">🖼️ {{ ui.l('بدون قالب تصميم', 'No design template') }}</option>
           <option v-for="(c, k) in dcat?.categories || {}" :key="k" :value="k">🖼️ {{ c.label[ui.locale] || c.label.en }}</option>
@@ -55,7 +54,7 @@
         <span class="font-semibold">{{ f.name }}</span>
         <span class="text-xs rounded-full bg-slate-100 px-2 py-0.5">{{ f.type }}</span>
         <span class="text-xs rounded-full px-2 py-0.5" :class="f.mode === 'queue' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100'">{{ f.mode === 'queue' ? ui.l('جدولة تلقائية', 'Auto-queue') : ui.l('مسودات', 'Drafts') }}</span>
-        <span v-if="f.videoMode" class="text-xs rounded-full bg-violet-100 text-violet-800 px-2 py-0.5">🎬 {{ f.videoAspect }}</span>
+        <span v-if="f.videoMode" class="text-xs rounded-full bg-violet-100 text-violet-800 px-2 py-0.5">🎬 {{ ui.l('ريل', 'Reel') }}</span>
         <span v-if="!f.enabled" class="text-xs rounded-full bg-slate-200 px-2 py-0.5">{{ ui.l('متوقف', 'Disabled') }}</span>
         <div class="ms-auto flex gap-2 text-sm">
           <button class="rounded-lg border px-2 py-1" @click="preview(f)">👁 {{ ui.l('معاينة', 'Preview') }}</button>

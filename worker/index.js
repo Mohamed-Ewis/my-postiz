@@ -5,7 +5,6 @@ import { setSetting } from '../server/lib/settings.js'
 import { prisma } from '../server/utils/db.js'
 import { processVideoJobs, recoverVideoJobs, waitForRender } from '../server/lib/video/jobs.js'
 import { ffmpegPath, ffmpegAvailable } from '../server/lib/video/ffmpeg.js'
-import { ttsProvider } from '../server/lib/video/tts.js'
 
 const INTERVAL = Number(process.env.WORKER_INTERVAL_MS) || 15000
 const SLOW_EVERY = 4 // feeds + token refresh every 4 ticks (~1 min)
@@ -31,7 +30,7 @@ async function tick () {
       await step('feed posts', pollFeeds)
     }
     ticks++
-    await setSetting('worker.heartbeat', { at: new Date().toISOString(), pid: process.pid, intervalMs: INTERVAL, ffmpeg: ffmpegAvailable(), ffmpegPath: ffmpegPath(), tts: ttsProvider() })
+    await setSetting('worker.heartbeat', { at: new Date().toISOString(), pid: process.pid, intervalMs: INTERVAL, ffmpeg: ffmpegAvailable(), ffmpegPath: ffmpegPath() })
   } catch (e) {
     console.error('[worker] tick failed:', e.message)
   } finally { running = false }

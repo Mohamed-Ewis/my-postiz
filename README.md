@@ -92,7 +92,7 @@ Redirect URI format: `http://localhost:3000/api/accounts/<provider>/callback` (�
 
 ## إنشاء فيديو / Video studio
 صفحة "إنشاء فيديو": مونتاج محلي مجاني بـ FFmpeg (بيتنزل مع `npm install`، مش محتاج تسطب حاجة): صور/فيديوهات من المكتبة أو صور AI، سكريبت بالـ AI يتقسم مشاهد، نص عربي على الشاشة بخط Cairo، زووم Ken Burns، انتقالات، 9:16 / 1:1 / 16:9، موسيقى، كارت بداية/نهاية، لوجو، وتعليق صوتي اختياري (OpenAI/Gemini). الرندر بيحصل جوه الـ Worker، والفيديو بيتحفظ في المكتبة وتقدر تنشره بزرار "انشر الفيديو ده".
-Local free montage with bundled FFmpeg; renders run in the worker and land in the media library. Optional AI video via fal.ai (`FAL_KEY`). Feeds can auto-render a short video per news item ("Make video" option).
+"الكل" news reel (9:16, 4-step stepper: category → collect news → edit → render) with bundled FFmpeg; renders run in the worker and land in the media library. Feeds can auto-render a one-item news reel per item that has a photo ("Make a news reel" option).
 لو FFmpeg مااشتغلش: `npm rebuild ffmpeg-static ffprobe-static` أو حط مسار ffmpeg.exe في `FFMPEG_PATH`.
 Font: Cairo (SIL Open Font License, `assets/fonts/OFL.txt`).
 
