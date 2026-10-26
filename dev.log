@@ -19,11 +19,8 @@
 [web] 
 [web] [nuxt:tailwindcss] i Using default Tailwind CSS file
 [web] [nuxt:tailwindcss] i Tailwind Viewer: http://localhost:3000/_tailwind/
-[web] √ Vite client built in 60ms
-[web] √ Vite server built in 516ms
-[web] [nitro] √ Nuxt Nitro server built in 2532ms
+[web] √ Vite client built in 50ms
+[web] √ Vite server built in 429ms
+[web] [nitro] √ Nuxt Nitro server built in 3202ms
 [web] i Vite server warmed up in 1ms
 [web] i Vite client warmed up in 3ms
-[web] √ Vite server hmr 1 files in 0.008ms
-[web] [nuxt] i Compiled plugins.client.mjs in 524ms
-[web] [nuxt] i Compiled types/plugins.d.ts in 603.72ms

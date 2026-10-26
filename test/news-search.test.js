@@ -1,13 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { googleNewsUrl, CATEGORY_QUERIES, NEWS_CATEGORIES, feedMatchesCategory, normalizeNewsItems, searchNews, rankAndRewrite, templateCaption, generateCaption, extractOgImage, shortenItem } from '../server/lib/newsSearch.js'
+import { googleNewsUrl, CATEGORY_QUERIES, NEWS_CATEGORIES, normalizeNewsItems, searchNews, rankAndRewrite, templateCaption, generateCaption, extractOgImage, shortenItem } from '../server/lib/newsSearch.js'
 
 const gnRss = `<?xml version="1.0"?><rss><channel>
 <item><title>الأهلي يفوز على الزمالك 2-1 في القمة - اليوم السابع</title><link>https://news.google.com/rss/articles/a1</link><pubDate>Sat, 24 Oct 2026 18:00:00 GMT</pubDate><description>&lt;a&gt;x&lt;/a&gt;</description></item>
 <item><title>الأهلي يفوز على الزمالك 2-1 في القمة - مصراوي</title><link>https://news.google.com/rss/articles/a2</link><pubDate>Sat, 24 Oct 2026 17:00:00 GMT</pubDate></item>
 <item><title>صلاح يسجل هدفه العاشر هذا الموسم - كووورة</title><link>https://news.google.com/rss/articles/a3</link><pubDate>Sun, 25 Oct 2026 08:00:00 GMT</pubDate></item>
 </channel></rss>`
-const userRss = `<rss><channel><item><title>منتخب مصر يستعد لمباراة ودية قوية</title><link>https://site.example/n1</link><description>المنتخب يدخل معسكرا مغلقا الأسبوع المقبل. وتفاصيل أخرى.</description><enclosure url="https://site.example/i1.jpg" type="image/jpeg"/><pubDate>Sun, 25 Oct 2026 09:00:00 GMT</pubDate></item></channel></rss>`
 
 test('category → Google News query mapping (Arabic, EG)', () => {
   for (const c of NEWS_CATEGORIES) {
@@ -19,12 +18,6 @@ test('category → Google News query mapping (Arabic, EG)', () => {
   assert.match(new URL(googleNewsUrl('sport')).searchParams.get('q'), /رياضة/)
   assert.match(new URL(googleNewsUrl('breaking')).searchParams.get('q'), /عاجل/)
   assert.equal(new URL(googleNewsUrl('health', 'en')).searchParams.get('hl'), 'en-US')
-})
-
-test('feeds are matched to a category by name/url keywords', () => {
-  assert.ok(feedMatchesCategory({ name: 'أخبار الرياضة', url: 'https://x/rss' }, 'sport'))
-  assert.ok(feedMatchesCategory({ name: 'x', url: 'https://kooora.com/rss' }, 'sport'))
-  assert.ok(!feedMatchesCategory({ name: 'Health daily', url: 'https://h/rss' }, 'sport'))
 })
 
 test('normalization strips publisher suffix, dedupes, sorts newest first', () => {
@@ -42,17 +35,27 @@ test('og:image extraction ignores google assets', () => {
   assert.equal(extractOgImage('<p>none</p>'), null)
 })
 
-test('searchNews: user feed first, then Google fallback; network mocked', async () => {
+test('searchNews: Google News only without TheNewsAPI key; network mocked', async () => {
   const calls = []
-  const fetchText = async url => { calls.push(url); if (url.includes('news.google.com')) return { body: gnRss }; if (url.includes('site.example')) return { body: userRss }; throw new Error('unexpected ' + url) }
+  const fetchText = async url => { calls.push(url); if (url.includes('news.google.com')) return { body: gnRss }; throw new Error('unexpected ' + url) }
   const ogImage = async url => (url.endsWith('a3') ? 'https://img.example/a3.jpg' : null)
   delete process.env.THENEWSAPI_KEY
-  const { items, notices } = await searchNews({ category: 'sport', feeds: [{ name: 'رياضة', url: 'https://site.example/rss' }, { name: 'صحة', url: 'https://other/rss' }], deps: { fetchText, ogImage } })
-  assert.equal(calls.length, 2); assert.ok(calls[0].includes('site.example')); assert.ok(calls[1].includes('news.google.com'))
-  assert.equal(items.length, 3)
-  assert.equal(items[0].title, 'منتخب مصر يستعد لمباراة ودية قوية'); assert.equal(items[0].imageUrl, 'https://site.example/i1.jpg'); assert.equal(items[0].source, 'رياضة')
+  const { items, notices } = await searchNews({ category: 'sport', deps: { fetchText, ogImage } })
+  assert.equal(calls.length, 1); assert.ok(calls[0].includes('news.google.com'))
+  assert.equal(items.length, 2)
+  assert.equal(items[0].title, 'صلاح يسجل هدفه العاشر هذا الموسم'); assert.equal(items[0].source, 'كووورة')
   assert.equal(items.find(i => i.url.endsWith('a3')).imageUrl, 'https://img.example/a3.jpg')
   assert.equal(notices.length, 0)
+})
+
+test('searchNews uses TheNewsAPI first when key set', async () => {
+  const calls = []
+  process.env.THENEWSAPI_KEY = 'k'
+  const fetchText = async url => { calls.push(url); if (url.includes('thenewsapi')) return { body: JSON.stringify({ data: [{ title: 'خبر من TheNewsAPI عن الدوري', url: 'https://n.example/1', source: 'n.example', published_at: '2026-10-25T10:00:00Z', image_url: 'https://n.example/i.jpg' }] }) }; return { body: gnRss } }
+  const { items } = await searchNews({ category: 'sport', deps: { fetchText, ogImage: async () => null } })
+  delete process.env.THENEWSAPI_KEY
+  assert.equal(calls.length, 2); assert.ok(calls[0].includes('thenewsapi')); assert.ok(calls[1].includes('news.google.com'))
+  assert.ok(items.some(i => i.imageUrl === 'https://n.example/i.jpg'))
 })
 
 test('searchNews survives a failing source and reports a notice', async () => {

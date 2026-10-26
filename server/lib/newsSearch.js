@@ -1,6 +1,6 @@
-// Real-news collection for the reel stepper: user's RSS feeds (matching the category) + Google News RSS
-// search (no key) + optional TheNewsAPI (THENEWSAPI_KEY). Then optional AI ranking/rewriting.
-import { parseXmlFeed, parseJsonFeed } from './feeds.js'
+// Real-news collection for the reel stepper: optional TheNewsAPI (THENEWSAPI_KEY) + Google News RSS
+// search (no key). Then optional AI ranking/rewriting.
+import { parseXmlFeed } from './rss.js'
 import { generateText, aiInfo } from './ai.js'
 import { createMediaFromBuffer } from './media.js'
 
@@ -20,10 +20,6 @@ export function googleNewsUrl (category, lang = 'ar') {
   return lang === 'en'
     ? `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`
     : `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ar&gl=EG&ceid=EG:ar`
-}
-export const feedMatchesCategory = (feed, category) => {
-  const hay = `${feed.name || ''} ${feed.url || ''}`.toLowerCase()
-  return (CATEGORY_QUERIES[category]?.keywords || []).some(k => hay.includes(k.toLowerCase()))
 }
 
 /** Normalize parsed feed/API rows → { title, summary, url, source, publishedAt, imageUrl }; dedupe, newest first. */
@@ -61,17 +57,10 @@ async function ogImage (url) {
   try { const { body, finalUrl } = await fetchText(url, 6000); return extractOgImage(body.slice(0, 300000), finalUrl) } catch { return null }
 }
 
-/** Collect items. deps are injectable for tests: { fetchText, feeds, ogImage, now }. */
-export async function searchNews ({ category = 'breaking', lang = 'ar', feeds = [], limit = 12, deps = {} } = {}) {
+/** Collect items. deps are injectable for tests: { fetchText, ogImage }. */
+export async function searchNews ({ category = 'breaking', lang = 'ar', limit = 12, deps = {} } = {}) {
   const ft = deps.fetchText || fetchText; const og = deps.ogImage || ogImage
   const sources = []; const notices = []
-  for (const f of feeds.filter(f => f.enabled !== false && feedMatchesCategory(f, category)).slice(0, 4)) {
-    try {
-      const { body } = await ft(f.url)
-      const rows = f.type === 'json' ? parseJsonFeed(JSON.parse(body), typeof f.config === 'string' ? JSON.parse(f.config || '{}') : f.config || {}) : parseXmlFeed(body)
-      sources.push(...normalizeNewsItems(rows, { source: f.name }))
-    } catch (e) { notices.push(`الفيد «${f.name}» فشل: ${e.message}`) }
-  }
   const key = process.env.THENEWSAPI_KEY
   if (key) {
     try {

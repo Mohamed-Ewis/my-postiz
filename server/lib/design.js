@@ -1,4 +1,4 @@
-// Poster rendering shared by the API, feeds and worker.
+// Poster rendering shared by the API and worker.
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,7 +30,7 @@ export function cleanDesignInput (b = {}) {
     font: FONTS[b.font] ? b.font : undefined
   }
 }
-/** Render a poster PNG buffer. `imagePath` overrides mediaId (feeds). */
+/** Render a poster PNG buffer. `imagePath` overrides mediaId. */
 export async function renderPoster (userId, input, { outWidth, imagePath, imageMime } = {}) {
   const o = cleanDesignInput(input)
   let image = null

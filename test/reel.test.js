@@ -25,7 +25,7 @@ test('reel timeline: intro → items → outro with overlapping transitions, HUD
   assert.equal(tl.hud.length, 3); assert.equal(tl.hud[0].from, 2); assert.equal(tl.hud[2].to, 27)
   for (let i = 1; i < 3; i++) assert.equal(tl.hud[i].from, tl.hud[i - 1].to) // counter switches without gaps
   const names = tl.sfx.map(x => x.name)
-  assert.equal(names.filter(n => n === 'whoosh').length, 1) // intro only — no sounds between items
+  assert.ok(!names.includes('whoosh')) // no whooshes at all
   assert.ok(!names.includes('tick'))
   assert.ok(tl.sfx.filter(x => x.t > 2.5 && x.t < tl.segments.at(-1).start).length === 0)
   assert.ok(names.includes('hit') && names.includes('chime') && names.includes('pop'))

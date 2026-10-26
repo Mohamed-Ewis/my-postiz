@@ -22,7 +22,7 @@ async function attachToPost (job, mediaId) {
 }
 
 async function finish (job, media) {
-  await prisma.videoJob.update({ where: { id: job.id }, data: { state: 'DONE', progress: 100, stage: null, outputMediaId: media.id, finishedAt: new Date(), error: null } })
+  await prisma.videoJob.update({ where: { id: job.id }, data: { state: 'DONE', progress: 100, stage: media.voiceNote ? `⚠️ ${media.voiceNote}` : null, outputMediaId: media.id, finishedAt: new Date(), error: null } })
   await attachToPost(job, media.id)
 }
 async function fail (job, e) {

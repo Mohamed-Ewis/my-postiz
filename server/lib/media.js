@@ -1,4 +1,4 @@
-// Framework-free media helpers (used by API routes, feeds, AI images, worker).
+// Framework-free media helpers (used by API routes, AI images, worker).
 import { mkdir, writeFile, rename, stat, unlink } from 'node:fs/promises'
 import { resolve, join, extname, sep } from 'node:path'
 import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto'

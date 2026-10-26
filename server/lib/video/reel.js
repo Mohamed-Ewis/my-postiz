@@ -11,6 +11,7 @@ import { ensureBed, ensureSting, hasBed } from './music.js'
 import { BRAND_CATEGORIES, brandCategory, lockup, watermark, icon } from '../../templates/brand/alkol.js'
 import { fitText, esc } from '../../templates/lib/svg.js'
 import { FONTS, measure } from '../../templates/lib/fonts.js'
+import { synthesize, voiceId, DEFAULT_VOICE } from './tts.js'
 
 export const REEL_ID = 'news-reel'
 export const REEL = { width: 1080, height: 1920, fps: 30, intro: 2.5, outro: 3, transition: 0.5, itemDefault: 7, itemMin: 3, itemMax: 20, maxItems: 20, maxTotal: 180 }
@@ -39,8 +40,11 @@ export function normalizeReelSpec (s = {}, { allowFiles = false } = {}) {
     sfx: s.sfx !== false,
     categoryMusic: s.categoryMusic !== false,
     quality: s.quality === 'draft' ? 'draft' : 'hd',
-    afterRender: s.afterRender === 'queue' ? 'queue' : 'draft'
+    afterRender: s.afterRender === 'queue' ? 'queue' : 'draft',
+    // Arabic TTS voice-over (default on). voice.intro: also say "الكل <فئة>" over the intro.
+    voice: { enabled: s.voice?.enabled ?? s.voiceOver ?? true, name: voiceId(s.voice?.name || DEFAULT_VOICE), intro: s.voice?.intro !== false }
   }
+  spec.voice.enabled = spec.voice.enabled !== false && spec.voice.enabled !== 'false'
   if (spec.category === 'neutral') spec.category = 'sport'
   const tl = reelTimeline(spec)
   if (tl.total > REEL.maxTotal) throw bad(`الريل أطول من ${REEL.maxTotal / 60} دقايق (${Math.round(tl.total)}s) — قلّل الأخبار أو مددها`)
@@ -50,7 +54,7 @@ export function normalizeReelSpec (s = {}, { allowFiles = false } = {}) {
 /** Segment timing, transitions, HUD windows and SFX cues (seconds). */
 export function reelTimeline (spec) {
   const T = REEL.transition
-  const segs = [{ kind: 'intro', duration: REEL.intro }, ...spec.items.map((it, i) => ({ kind: 'item', index: i, duration: it.duration })), { kind: 'outro', duration: REEL.outro }]
+  const segs = [{ kind: 'intro', duration: spec.introDuration || REEL.intro }, ...spec.items.map((it, i) => ({ kind: 'item', index: i, duration: it.duration })), { kind: 'outro', duration: REEL.outro }]
   let t = 0
   segs.forEach((s, i) => { s.start = i ? t : 0; t = s.start + s.duration - T })
   const total = +(segs.at(-1).start + segs.at(-1).duration).toFixed(3)
@@ -58,7 +62,7 @@ export function reelTimeline (spec) {
   const items = segs.filter(s => s.kind === 'item')
   const hud = items.map((s, k) => ({ index: k, from: k === 0 ? s.start : s.start + T / 2, to: k === items.length - 1 ? s.start + s.duration : s.start + s.duration - T / 2, fillFrom: s.start + (k ? T / 2 : T), fillDur: s.duration - (k ? T : 1.5 * T) }))
   const sfx = [
-    { t: 0, name: 'whoosh', gain: 0.8 }, { t: 0.42, name: 'pop', gain: 0.9 }, { t: 1.05, name: 'hit', gain: 1 },
+    { t: 0.42, name: 'pop', gain: 0.9 }, { t: 1.05, name: 'hit', gain: 1 },
     { t: segs.at(-1).start + 0.35, name: 'hit', gain: 0.9 }, { t: segs.at(-1).start + 0.8, name: 'chime', gain: 0.6 }
   ].map(x => ({ ...x, t: +x.t.toFixed(3) }))
   return { segments: segs, transitions, hud, sfx, total }
@@ -313,12 +317,48 @@ function kenBurns (k, W, H, frames, amp = 0.12) {
   return `zoompan=z='${z}':x='${x}':y='(ih-ih/zoom)*0.42':d=1:s=${W}x${H}:fps=${REEL.fps}`
 }
 
+// ---------- voice-over ----------
+export const VOICE = { introAt: 1.0, lead: 0.75, tail: 0.85, gain: 1.0 }
+/**
+ * Synthesize the voice-over and stretch segments so text and voice stay in sync:
+ * item.duration = max(chosen duration, lead + speech + tail). If that breaks the 3-minute cap, bodies are dropped
+ * from the speech; if still too long → error. Returns { spec (copy with new durations), intro, items: [{file,duration}] }.
+ */
+export async function prepareVoice (spec, { synth = synthesize } = {}) {
+  const v = spec.voice.name
+  const label = BRAND_CATEGORIES[spec.category]?.label || ''
+  const intro = spec.voice.intro ? await synth([`الكل ${label}`], v) : null
+  const build = async withBody => {
+    const items = []
+    for (const it of spec.items) items.push(await synth(withBody && it.body ? [it.title, it.body] : [it.title], v))
+    const out = { ...spec, items: spec.items.map((it, i) => ({ ...it, duration: +Math.max(it.duration, VOICE.lead + items[i].duration + VOICE.tail).toFixed(2) })) }
+    if (intro) out.introDuration = +Math.max(REEL.intro, VOICE.introAt + intro.duration + 0.5).toFixed(2)
+    return { spec: out, intro, items, bodies: withBody }
+  }
+  let r = await build(true)
+  if (reelTimeline(r.spec).total > REEL.maxTotal && spec.items.some(it => it.body)) r = await build(false)
+  const total = reelTimeline(r.spec).total
+  if (total > REEL.maxTotal) throw bad(`مع التعليق الصوتي الريل هيبقى ${Math.round(total)} ثانية (أكتر من ٣ دقايق) — قلّل الأخبار أو اختصر العناوين`)
+  return r
+}
+
 /**
  * Render a reel. resolveFile(item|music) → absolute path. Returns { file, duration, timeline }.
  */
-export async function renderReel (spec, { tmp, outFile, resolveFile = x => x.file, update = async () => {} }) {
+export async function renderReel (spec, opts) {
+  const { tmp, outFile, resolveFile = x => x.file, update = async () => {} } = opts
   const draft = spec.quality === 'draft'
   const W = draft ? 720 : REEL.width; const H = draft ? 1280 : REEL.height
+  let voice = null; let voiceNote = ''
+  if (spec.voice?.enabled) {
+    await update({ stage: 'Voice-over', progress: 2 })
+    try { voice = await prepareVoice(spec, { synth: opts.synth }); spec = voice.spec } catch (e) {
+      if (e.statusCode === 400) throw e
+      voiceNote = `التعليق الصوتي ما اشتغلش (${String(e.message || e).slice(0, 120)}) — الفيديو اتعمل بالموسيقى بس`
+      console.warn('[reel] voice-over failed:', e.message)
+    }
+    if (voice && !voice.bodies && spec.items.some(it => it.body)) voiceNote = 'التعليق الصوتي قرا العناوين بس عشان الريل ما يعديش ٣ دقايق'
+  }
   const tl = reelTimeline(spec); const cat0 = spec.category
   await mkdir(tmp, { recursive: true })
   const sfx = spec.sfx ? await ensureSfx() : null
@@ -371,6 +411,18 @@ export async function renderReel (spec, { tmp, outFile, resolveFile = x => x.fil
   }
   args.push('-f', 'lavfi', '-t', tl.total.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo'); sfxLabels.push(`[${idx}:a]`); idx++
   fl.push(`${sfxLabels.join('')}amix=inputs=${sfxLabels.length}:duration=longest:normalize=0,atrim=0:${tl.total.toFixed(3)}[sfxbus]`)
+  // Voice bus: intro line + one clip per item, each placed after its text has appeared.
+  const cues = voice ? voiceCues(voice, tl) : []
+  if (cues.length) {
+    const vl = []
+    for (const [k, c] of cues.entries()) {
+      args.push('-i', c.file); const ms = Math.round(c.t * 1000)
+      fl.push(`[${idx}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${VOICE.gain},adelay=${ms}|${ms}[v${k}]`); vl.push(`[v${k}]`); idx++
+    }
+    args.push('-f', 'lavfi', '-t', tl.total.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo'); vl.push(`[${idx}:a]`); idx++
+    fl.push(`${vl.join('')}amix=inputs=${vl.length}:duration=longest:normalize=0,atrim=0:${tl.total.toFixed(3)}[vobus]`)
+  }
+  const master = 'loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000'
   // User music overrides; otherwise the category bed (looped seamlessly, mixed low).
   const bed = !spec.music && spec.categoryMusic ? await ensureBed(cat0) : null
   const mus = spec.music ? { file: await resolveFile(spec.music), volume: spec.music.volume } : bed ? { file: bed, volume: BED_VOLUME } : null
@@ -386,16 +438,30 @@ export async function renderReel (spec, { tmp, outFile, resolveFile = x => x.fil
         `[bedraw][stg]amix=inputs=2:duration=first:normalize=0[bedst]`)
       musIn = '[bedst]'
     }
-    fl.push('[sfxbus]asplit=2[sfxa][sfxk]',
-      `${musIn}aresample=48000,aformat=channel_layouts=stereo,volume=${mus.volume.toFixed(3)},atrim=0:${tl.total.toFixed(3)},afade=t=in:d=1.5,afade=t=out:st=${Math.max(0, tl.total - 2.5).toFixed(3)}:d=2.5[mus]`,
-      '[mus][sfxk]sidechaincompress=threshold=0.03:ratio=8:attack=8:release=350[duck]',
-      '[sfxa][duck]amix=inputs=2:duration=first:normalize=0,volume=1.4,alimiter=limit=0.8:level=false[aout]')
+    fl.push(`${musIn}aresample=48000,aformat=channel_layouts=stereo,volume=${mus.volume.toFixed(3)},atrim=0:${tl.total.toFixed(3)},afade=t=in:d=1.5,afade=t=out:st=${Math.max(0, tl.total - 2.5).toFixed(3)}:d=2.5[mus]`)
+    if (cues.length) { // music ducks ≈ -12 dB under the voice (and under the intro/outro hits)
+      fl.push('[sfxbus]asplit=2[sfxa][sfxk0]', '[vobus]asplit=2[voa][vok0]', '[sfxk0][vok0]amix=inputs=2:normalize=0[key]',
+        '[mus][key]sidechaincompress=threshold=0.015:ratio=10:attack=25:release=450:makeup=1[duck]',
+        `[sfxa][duck][voa]amix=inputs=3:duration=first:normalize=0,${master},alimiter=limit=0.89:level=false[aout]`)
+    } else {
+      fl.push('[sfxbus]asplit=2[sfxa][sfxk]', '[mus][sfxk]sidechaincompress=threshold=0.03:ratio=8:attack=8:release=350[duck]',
+        `[sfxa][duck]amix=inputs=2:duration=first:normalize=0,${master},alimiter=limit=0.89:level=false[aout]`)
+    }
     idx++
-  } else fl.push('[sfxbus]volume=1.6,alimiter=limit=0.9[aout]')
+  } else if (cues.length) fl.push(`[sfxbus][vobus]amix=inputs=2:duration=first:normalize=0,${master},alimiter=limit=0.89:level=false[aout]`)
+  else fl.push(`[sfxbus]${master},alimiter=limit=0.89:level=false[aout]`)
   await runFfmpeg([...args, '-filter_complex', fl.join(';'), '-map', '[vout]', '-map', '[aout]', '-t', tl.total.toFixed(3),
     '-c:v', 'libx264', '-preset', draft ? 'veryfast' : 'medium', '-crf', '20', '-profile:v', 'high', '-level', '4.1', '-pix_fmt', 'yuv420p', '-r', String(REEL.fps),
     '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-movflags', '+faststart', outFile],
   { onProgress: t => update({ progress: Math.min(97, 75 + Math.round(22 * t / tl.total)) }) })
   const info = await probe(outFile)
-  return { file: outFile, duration: info.duration, timeline: tl, info }
+  return { file: outFile, duration: info.duration, timeline: tl, info, voiceNote, voice: voice ? spec.voice.name : null }
+}
+
+/** Where each voice clip starts (seconds) on the reel timeline. */
+export function voiceCues (voice, tl) {
+  const out = []
+  if (voice.intro) out.push({ t: VOICE.introAt, file: voice.intro.file, duration: voice.intro.duration })
+  tl.segments.filter(sg => sg.kind === 'item').forEach((sg, k) => { const v = voice.items[k]; if (v) out.push({ t: +(sg.start + VOICE.lead).toFixed(3), file: v.file, duration: v.duration }) })
+  return out
 }

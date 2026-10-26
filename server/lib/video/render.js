@@ -26,9 +26,11 @@ export async function renderVideo (job, update = async () => {}) {
     await update({ stage: 'Saving', progress: 98 })
     const thumb = await newMediaPath('thumb.jpg', 'image/jpeg')
     await runFfmpeg(['-ss', String(r.timeline.segments[1].start + 2.5), '-i', outFile, '-frames:v', '1', '-q:v', '3', thumb.full])
-    return createMediaFromFile(job.userId, outFile, `${(job.title || 'reel').replace(/[^\p{L}\p{N} _-]/gu, '').slice(0, 60) || 'reel'}.mp4`, 'video/mp4', {
+    const media = await createMediaFromFile(job.userId, outFile, `${(job.title || 'reel').replace(/[^\p{L}\p{N} _-]/gu, '').slice(0, 60) || 'reel'}.mp4`, 'video/mp4', {
       width: r.info.width, height: r.info.height, duration: r.info.duration, thumbnail: thumb.rel
     })
+    if (r.voiceNote) media.voiceNote = r.voiceNote
+    return media
   } finally {
     if (process.env.VIDEO_KEEP_TMP !== 'true') await rm(tmp, { recursive: true, force: true }).catch(() => {})
   }

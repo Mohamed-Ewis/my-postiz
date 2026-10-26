@@ -44,7 +44,6 @@ const nav = [
   { to: '/video', key: 'video', icon: '🎬' },
   { to: '/poster', key: 'poster', icon: '🖼️' },
   { to: '/media', key: 'media', icon: '🖼️' },
-  { to: '/feeds', key: 'feeds', icon: '📰' },
   { to: '/settings', key: 'settings', icon: '⚙️' }
 ]
 async function logout () {

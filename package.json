@@ -24,6 +24,7 @@
     "ffprobe-static": "^3.1.0",
     "image-size": "^2.0.4",
     "iron-webcrypto": "^1.2.1",
+    "msedge-tts": "^2.1.1",
     "nuxt": "^3.15.4",
     "nuxt-auth-utils": "^0.5.7",
     "opentype.js": "^2.0.0",

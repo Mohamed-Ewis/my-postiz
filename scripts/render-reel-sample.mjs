@@ -1,5 +1,5 @@
 // Render a sample "الكل" news reel from the bundled preset photos (no DB needed).
-// Usage: node scripts/render-reel-sample.mjs [out.mp4] [category]   (sport = 3 items ~30s, others = 2 items ~20s)
+// Usage: node scripts/render-reel-sample.mjs [out.mp4] [category] [voice|none]   (sport = 3 items ~30s, others = 2 items ~20s)
 import { normalizeReelSpec, renderReel } from '../server/lib/video/reel.js'
 import { resolve, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 const out = resolve(process.argv[2] || 'reel-sample.mp4')
 const ph = k => resolve('assets/presets/photos', `${k}.jpg`)
 const category = process.argv[3] || 'sport'
+const voiceArg = process.argv[4] || ''
 const SAMPLES = {
   sport: [
     { file: ph('sport'), title: 'منتخب مصر يتأهل إلى نهائيات كأس العالم بعد فوز مثير في الدقائق الأخيرة', body: 'هدف قاتل في الدقيقة 89 يحسم بطاقة التأهل أمام جماهير ممتلئة', duration: 9 },
@@ -37,8 +38,10 @@ const SAMPLES = {
 const spec = normalizeReelSpec({
   category,
   handle: '@alkol',
+  voice: voiceArg === 'none' ? { enabled: false } : { enabled: true, name: voiceArg || undefined },
   items: SAMPLES[category] || SAMPLES.sport
 }, { allowFiles: true })
 const t0 = Date.now()
-const r = await renderReel(spec, { tmp: join(tmpdir(), `reel-${Date.now()}`), outFile: out, update: async ({ stage, progress }) => stage && console.log(`${progress}% ${stage}`) })
+const r = await renderReel(spec, { tmp: join(tmpdir(), `reel-${Date.now()}-${process.pid}`), outFile: out, update: async ({ stage, progress }) => stage && console.log(`${progress}% ${stage}`) })
+if (r.voiceNote) console.log('note:', r.voiceNote)
 console.log(`done ${out} ${r.duration.toFixed(2)}s in ${((Date.now() - t0) / 1000).toFixed(0)}s`)

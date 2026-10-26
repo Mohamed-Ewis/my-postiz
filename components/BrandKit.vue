@@ -1,7 +1,7 @@
 <template>
   <div class="card space-y-3 lg:col-span-2">
     <h2 class="font-semibold">🎨 {{ ui.t('brand') }}</h2>
-    <p class="text-sm text-slate-500">{{ ui.l('بتتطبق على كل البوسترات والفيديوهات والأخبار التلقائية.', 'Applied to every poster, video and auto-feed.') }}</p>
+    <p class="text-sm text-slate-500">{{ ui.l('بتتطبق على كل البوسترات والفيديوهات.', 'Applied to every poster and video.') }}</p>
     <div class="grid md:grid-cols-3 gap-4 text-sm">
       <label>{{ ui.l('اللوجو (للخلفيات الغامقة — PNG شفاف)', 'Logo (for dark backgrounds — transparent PNG)') }}
         <MediaPicker v-model="b.logoMediaId" class="mt-1" :items="lib" :types="['image']" :placeholder="ui.l('اختار من المكتبة', 'Pick from library')" />

@@ -1,13 +1,12 @@
 // Standalone scheduler: `npm run worker`. Polls SQLite. No Redis needed.
 import { runDue, checkPending, refreshTokens } from '../server/lib/publisher.js'
-import { pollFeeds } from '../server/lib/feeds.js'
 import { setSetting } from '../server/lib/settings.js'
 import { prisma } from '../server/utils/db.js'
 import { processVideoJobs, recoverVideoJobs, waitForRender } from '../server/lib/video/jobs.js'
 import { ffmpegPath, ffmpegAvailable } from '../server/lib/video/ffmpeg.js'
 
 const INTERVAL = Number(process.env.WORKER_INTERVAL_MS) || 15000
-const SLOW_EVERY = 4 // feeds + token refresh every 4 ticks (~1 min)
+const SLOW_EVERY = 4 // token refresh every 4 ticks (~1 min)
 let running = false
 let ticks = 0
 
@@ -27,7 +26,6 @@ async function tick () {
     await step('video jobs', processVideoJobs)
     if (ticks % SLOW_EVERY === 0) {
       await step('tokens refreshed', refreshTokens)
-      await step('feed posts', pollFeeds)
     }
     ticks++
     await setSetting('worker.heartbeat', { at: new Date().toISOString(), pid: process.pid, intervalMs: INTERVAL, ffmpeg: ffmpegAvailable(), ffmpegPath: ffmpegPath() })

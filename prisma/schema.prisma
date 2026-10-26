@@ -19,7 +19,6 @@ model User {
   accounts     SocialAccount[]
   posts        Post[]
   media        Media[]
-  feeds        Feed[]
   videoJobs    VideoJob[]
   tags         Tag[]
   templates    Template[]
@@ -60,7 +59,7 @@ model Post {
   group     String?      // groups posts created together
   tagIds    String       @default("[]") // JSON array of Tag ids
   firstComment String?
-  source    String?      // "feed:<id>" for AutoPost
+  source    String?      
   error     String?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
@@ -110,41 +109,6 @@ model Media {
   width     Int?
   height    Int?
   createdAt DateTime @default(now())
-}
-
-model Feed {
-  id            String     @id @default(cuid())
-  userId        String
-  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String
-  url           String
-  type          String     @default("rss") // rss (RSS/Atom) | json
-  config        String     @default("{}") // json: itemsPath, titleField, linkField, summaryField, imageField
-  accountIds    String     @default("[]")
-  aiRewrite     Boolean    @default(true)
-  language      String     @default("ar")
-  mode          String     @default("draft") // draft | queue
-  videoMode     Boolean    @default(false)   // render a short video per item before posting
-  videoAspect   String     @default("9:16")
-  intervalMin   Int        @default(30)
-  enabled       Boolean    @default(true)
-  lastFetchedAt DateTime?
-  lastError     String?
-  createdAt     DateTime   @default(now())
-  items         FeedItem[]
-}
-
-model FeedItem {
-  id        String   @id @default(cuid())
-  feedId    String
-  feed      Feed     @relation(fields: [feedId], references: [id], onDelete: Cascade)
-  guid      String
-  link      String?
-  title     String?
-  postId    String?
-  createdAt DateTime @default(now())
-
-  @@unique([feedId, guid])
 }
 
 model Tag {

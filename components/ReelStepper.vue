@@ -65,7 +65,7 @@
       <div class="card space-y-3">
         <div class="flex items-center gap-2"><h2 class="font-semibold">الأخبار ({{ st.items.length }})</h2>
           <span class="ms-auto text-sm" :class="overCap ? 'text-red-600 font-bold' : 'text-slate-500'">⏱ {{ fmtDur(total) }} / 3:00</span></div>
-        <p v-if="overCap" class="text-sm rounded-lg bg-red-50 text-red-700 px-2 py-1">⚠️ المدة أكتر من ٣ دقايق — قلّل عدد الأخبار أو مدة كل خبر.</p>
+        <p v-if="overCap" class="text-sm rounded-lg bg-red-50 text-red-700 px-2 py-1">⚠️ المدة أكتر من ٣ دقايق{{ st.voiceOn ? ' (محسوبة مع وقت قراية المذيع)' : '' }} — قلّل عدد الأخبار أو اختصر العناوين.</p>
         <p v-if="!st.items.length" class="text-sm text-slate-500">لسه مفيش أخبار{{ st.source === 'ai' ? ' — هات أخبار من فوق أو أضف يدوي' : '' }}.</p>
         <div v-for="(it, i) in st.items" :key="it.key" class="rounded-2xl border p-3 space-y-2 bg-white" :class="dragOver === i ? 'ring-2 ring-brand-400' : ''"
           draggable="true" @dragstart="dragFrom = i" @dragover.prevent="dragOver = i" @dragleave="dragOver = -1" @drop.prevent="dropOn(i)" @dragend="dragOver = -1">
@@ -110,6 +110,17 @@
           <label>الحساب<input v-model="st.handle" class="input" dir="ltr"></label>
           <label>جملة الختام (CTA)<input v-model="st.cta" class="input"></label>
         </div>
+        <div class="rounded-xl border p-2 space-y-2">
+          <label class="flex items-center gap-2 font-semibold"><input v-model="st.voiceOn" type="checkbox"> 🎙 تعليق صوتي (مذيع بيقرا الأخبار)</label>
+          <div v-if="st.voiceOn" class="flex flex-wrap items-center gap-2">
+            <select v-model="st.voiceName" class="input !w-auto !py-1">
+              <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.label }}</option>
+            </select>
+            <button type="button" class="rounded-lg border px-2 py-1" :disabled="previewing" @click="previewVoice">{{ previewing ? '⏳' : '🔈' }} اسمع الصوت</button>
+            <span class="text-xs text-slate-500">مدة كل خبر بتطول لوحدها لحد ما المذيع يخلص قراية</span>
+          </div>
+          <p v-if="voiceMsg" class="text-xs text-amber-700">{{ voiceMsg }}</p>
+        </div>
         <label class="flex items-center gap-2"><input v-model="st.categoryMusic" type="checkbox"> 🎵 موسيقى الفئة ({{ catOf(st.category).label }})</label>
         <label class="flex items-center gap-2"><input v-model="st.sfx" type="checkbox"> 🔊 مؤثرات صوتية للمقدمة والختام</label>
         <div class="grid md:grid-cols-[1fr_8rem] gap-2 items-end">
@@ -130,6 +141,7 @@
           <div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div class="h-full bg-brand-600 transition-all" :style="{ width: (job.progress || 0) + '%' }" /></div>
           <div class="text-xs text-slate-500 mt-1">{{ job.state === 'QUEUED' ? 'في الطابور' : 'بيترندر' }} · {{ job.progress || 0 }}% <span v-if="job.stage">· {{ job.stage }}</span></div>
         </div>
+        <p v-if="job?.state === 'DONE' && job.stage" class="text-xs rounded-lg bg-amber-50 text-amber-800 px-2 py-1">{{ job.stage }}</p>
         <p v-if="job?.error" class="text-red-600">{{ job.error }}</p>
         <p v-if="err" class="text-red-600">{{ err }}</p>
       </div>
@@ -207,18 +219,21 @@ const sources = [{ key: 'manual', icon: '✍️', label: 'يدوي', hint: 'اك
 const catOf = k => cats.find(c => c.key === k) || cats[0]
 let key = Date.now()
 const newItem = (o = {}) => ({ key: ++key, mediaId: null, title: '', body: '', duration: 7, stat: { value: '', dir: '', label: '' }, source: '', url: '', ...o })
-const fresh = () => ({ step: 1, category: '', source: '', items: [], handle: '@alkol', cta: 'تابعونا', sfx: true, categoryMusic: true, music: null, musicVolume: 0.25, draft: false, jobId: null, videoMediaId: null, videoUrl: '', videoThumb: '', renderedSig: '', caption: '', captionSig: '', accountIds: [], when: 'now', publishAt: '' })
+const fresh = () => ({ step: 1, category: '', source: '', items: [], handle: '@alkol', cta: 'تابعونا', sfx: true, categoryMusic: true, music: null, musicVolume: 0.25, voiceOn: true, voiceName: 'ar-EG-ShakirNeural', draft: false, jobId: null, videoMediaId: null, videoUrl: '', videoThumb: '', renderedSig: '', caption: '', captionSig: '', accountIds: [], when: 'now', publishAt: '' })
 const st = reactive(fresh())
 const library = computed(() => props.library)
 function onUploaded (m) { emit('uploaded', m) }
 
 // ---- duration / validation
-const total = computed(() => st.items.length ? 2.5 + 3 + st.items.reduce((a, it) => a + (Number(it.duration) || 7), 0) - 0.5 * (st.items.length + 1) : 0)
+// With voice-over each item lasts at least as long as its reading (≈1.6 words/s at the anchor pace).
+const speech = t => { const w = String(t || '').trim().split(/\s+/).filter(Boolean).length; return w ? w / 1.6 + 0.5 : 0 }
+const itemDur = it => { const d = Number(it.duration) || 7; return st.voiceOn ? Math.max(d, 1.6 + speech(it.title) + (it.body ? 0.45 + speech(it.body) : 0)) : d }
+const total = computed(() => st.items.length ? (st.voiceOn ? 3 : 2.5) + 3 + st.items.reduce((a, it) => a + itemDur(it), 0) - 0.5 * (st.items.length + 1) : 0)
 const overCap = computed(() => total.value > 180)
 const fmtDur = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
 const fmtDate = d => new Date(d).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const validItems = computed(() => st.items.filter(it => it.mediaId && it.title.trim()))
-const sig = computed(() => JSON.stringify([st.category, st.handle, st.cta, st.sfx, st.categoryMusic, st.music, st.musicVolume, st.draft, validItems.value.map(({ key: _k, source: _s, url: _u, ...it }) => it)]))
+const sig = computed(() => JSON.stringify([st.category, st.handle, st.cta, st.sfx, st.categoryMusic, st.voiceOn, st.voiceName, st.music, st.musicVolume, st.draft, validItems.value.map(({ key: _k, source: _s, url: _u, ...it }) => it)]))
 const stale = computed(() => !!st.renderedSig && st.renderedSig !== sig.value)
 function stepValid (n) {
   if (n === 1) return !!(st.category && st.source)
@@ -275,7 +290,7 @@ async function render () {
   err.value = ''; rendering.value = true
   const s = sig.value
   try {
-    const spec = { template: 'news-reel', category: st.category, handle: st.handle, cta: st.cta, sfx: st.sfx, categoryMusic: st.categoryMusic, quality: st.draft ? 'draft' : 'hd',
+    const spec = { template: 'news-reel', category: st.category, handle: st.handle, cta: st.cta, sfx: st.sfx, categoryMusic: st.categoryMusic, voice: { enabled: st.voiceOn, name: st.voiceName }, quality: st.draft ? 'draft' : 'hd',
       items: validItems.value.map(it => ({ mediaId: it.mediaId, title: it.title, body: it.body, duration: it.duration, stat: st.category === 'economy' && String(it.stat?.value || '').trim() ? it.stat : null })),
       music: st.music ? { mediaId: st.music, volume: st.musicVolume } : null }
     const j = await $fetch('/api/video/jobs', { method: 'POST', body: { title: `ريل ${catOf(st.category).label} — ${validItems.value[0].title}`, spec } })
@@ -294,6 +309,20 @@ async function poll () {
     if (!j || j.state === 'ERROR') { rendering.value = false; emit('rendered'); return }
   } catch {}
   timer = setTimeout(poll, 2000)
+}
+
+// ---- voice-over
+const voices = [
+  { id: 'ar-SA-HamedNeural', label: 'حامد — رجالي (فصحى)' }, { id: 'ar-SA-ZariyahNeural', label: 'زارية — حريمي (فصحى)' },
+  { id: 'ar-EG-ShakirNeural', label: 'شاكر — رجالي (مصري)' }, { id: 'ar-EG-SalmaNeural', label: 'سلمى — حريمي (مصري)' }
+]
+const previewing = ref(false); const voiceMsg = ref(''); let previewAudio = null
+async function previewVoice () {
+  previewing.value = true; voiceMsg.value = ''
+  try {
+    const blob = await $fetch('/api/video/tts-preview', { query: { voice: st.voiceName }, responseType: 'blob' })
+    previewAudio?.pause(); previewAudio = new Audio(URL.createObjectURL(blob)); await previewAudio.play()
+  } catch (e) { voiceMsg.value = (e.data?.statusMessage || e.message) + ' — لو فضلت كده الفيديو هيتعمل بالموسيقى بس' } finally { previewing.value = false }
 }
 
 // ---- publish
