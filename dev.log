@@ -19,8 +19,12 @@
 [web] 
 [web] [nuxt:tailwindcss] i Using default Tailwind CSS file
 [web] [nuxt:tailwindcss] i Tailwind Viewer: http://localhost:3000/_tailwind/
-[web] √ Vite client built in 50ms
-[web] √ Vite server built in 429ms
-[web] [nitro] √ Nuxt Nitro server built in 3202ms
+[web] √ Vite client built in 51ms
+[web] √ Vite server built in 473ms
+[web] [nitro] √ Nuxt Nitro server built in 2957ms
 [web] i Vite server warmed up in 1ms
-[web] i Vite client warmed up in 3ms
+[web] i Vite client warmed up in 2ms
+[web] i hmr update /assets/css/main.css, /node_modules/tailwindcss/tailwind.css, /node_modules/tailwindcss/tailwind.css?direct, /D:/ewis learn/my-postiz/assets/css/main.css?direct
+[web] i hmr update /node_modules/tailwindcss/tailwind.css, /assets/css/main.css, /@id/virtual:nuxt:.nuxt%2Froutes.mjs
+[web] [nuxt] i Compiled types/plugins.d.ts in 566.84ms
+[web] [nitro] √ Nuxt Nitro server built in 3866ms

@@ -11,13 +11,15 @@ import { ensureBed, ensureSting, hasBed } from './music.js'
 import { BRAND_CATEGORIES, brandCategory, lockup, watermark, icon } from '../../templates/brand/alkol.js'
 import { fitText, esc } from '../../templates/lib/svg.js'
 import { FONTS, measure } from '../../templates/lib/fonts.js'
-import { synthesize, voiceId, DEFAULT_VOICE } from './tts.js'
+import { synthesize, voiceId, voiceStyle } from './tts.js'
 
 export const REEL_ID = 'news-reel'
 export const REEL = { width: 1080, height: 1920, fps: 30, intro: 2.5, outro: 3, transition: 0.5, itemDefault: 7, itemMin: 3, itemMax: 20, maxItems: 20, maxTotal: 180 }
 const INK = '#0A0A0F'
 const num = (v, d, min, max) => Math.min(max, Math.max(min, Number.isFinite(+v) && v !== '' && v !== null ? +v : d))
 const bad = m => Object.assign(new Error(m), { statusCode: 400 })
+/** Automatic item length without voice-over, from the headline word count (the description is not shown on screen). */
+export const autoDuration = title => { const w = String(title || '').trim().split(/\s+/).filter(Boolean).length; return +Math.min(10, Math.max(3.5, 2 + 0.45 * w)).toFixed(1) }
 
 /** Validate a reel spec. allowFiles lets server-side callers (sample script/tests) pass local image paths. */
 export function normalizeReelSpec (s = {}, { allowFiles = false } = {}) {
@@ -25,8 +27,9 @@ export function normalizeReelSpec (s = {}, { allowFiles = false } = {}) {
     mediaId: it.mediaId || null,
     file: allowFiles && it.file ? String(it.file) : null,
     title: String(it.title || '').trim().slice(0, 160),
-    body: String(it.body || '').trim().slice(0, 220),
-    duration: num(it.duration, REEL.itemDefault, REEL.itemMin, REEL.itemMax),
+    body: String(it.body || '').trim().slice(0, 220), // spoken only (voice-over); never drawn on the frames
+    // Used only without voice-over (with it, the speech length decides): explicit value, else automatic from the headline.
+    duration: it.duration !== undefined && it.duration !== null && it.duration !== '' ? num(it.duration, REEL.itemDefault, REEL.itemMin, REEL.itemMax) : autoDuration(it.title),
     stat: it.stat && String(it.stat.value || '').trim() ? { value: String(it.stat.value).trim().slice(0, 12), dir: ['up', 'down'].includes(it.stat.dir) ? it.stat.dir : '', label: String(it.stat.label || '').trim().slice(0, 24) } : null
   })).filter(it => it.title && (it.mediaId || it.file))
   if (!items.length) throw bad('ضيف خبر واحد على الأقل (صورة + عنوان)')
@@ -41,8 +44,8 @@ export function normalizeReelSpec (s = {}, { allowFiles = false } = {}) {
     categoryMusic: s.categoryMusic !== false,
     quality: s.quality === 'draft' ? 'draft' : 'hd',
     afterRender: s.afterRender === 'queue' ? 'queue' : 'draft',
-    // Arabic TTS voice-over (default on). voice.intro: also say "الكل <فئة>" over the intro.
-    voice: { enabled: s.voice?.enabled ?? s.voiceOver ?? true, name: voiceId(s.voice?.name || DEFAULT_VOICE), intro: s.voice?.intro !== false }
+    // Arabic TTS voice-over (default on; the voice itself is fixed server-side, any requested name is ignored). The intro is never spoken.
+    voice: { enabled: s.voice?.enabled ?? s.voiceOver ?? true, name: voiceId() }
   }
   spec.voice.enabled = spec.voice.enabled !== false && spec.voice.enabled !== 'false'
   if (spec.category === 'neutral') spec.category = 'sport'
@@ -124,18 +127,7 @@ export function introSvg (category, t, { W = 1080, H = 1920 } = {}) {
   const b = lockupBuild(category, { W, cy: H * 0.47, h: 120 * s, t })
   const ul = eOut(prog(t, 1.35, 0.5))
   const line = ul > 0 ? `<rect x="${n(W / 2 - 160 * s * ul)}" y="${n(H * 0.47 + 120 * s)}" width="${n(320 * s * ul)}" height="${n(5 * s)}" rx="${n(2.5 * s)}" fill="${c.color}" opacity="${n(ul)}"/>` : ''
-  const sub = prog(t, 1.5, 0.45)
-  const subT = sub > 0 ? `<text x="${W / 2}" y="${n(H * 0.47 + 200 * s + (1 - eOut(sub)) * 24 * s)}" font-family="${fam('plex')}" font-weight="500" font-size="${n(40 * s)}" fill="#fff" fill-opacity="${n(0.7 * sub)}" text-anchor="middle" direction="rtl">أهم أخبار ${esc(c.label)} اليوم</text>` : ''
-  if (reelStyle(category).banner) { // عاجل: big red danger banner instead of the subtitle
-    const bp = prog(t, 1.35, 0.4)
-    if (bp <= 0) return doc(W, H, backdrop(W, H, c.color) + b.svg)
-    const sc = Math.max(0.01, eBack(bp, 2)); const bw = 520 * s; const bh = 150 * s; const cx = W / 2; const cy = H * 0.47 + 230 * s
-    const ban = `<g opacity="${n(Math.min(1, bp * 3))}" transform="translate(${n(cx)},${n(cy)}) scale(${n(sc)})"><rect x="${n(-bw / 2)}" y="${n(-bh / 2)}" width="${n(bw)}" height="${n(bh)}" rx="${n(14 * s)}" fill="${c.color}"/>` +
-      `<text x="${n(40 * s)}" y="${n(bh * 0.24)}" font-family="${fam('tajawal')}" font-weight="800" font-size="${n(104 * s)}" fill="#fff" text-anchor="middle" direction="rtl">${esc(c.label)}</text>` +
-      `<circle cx="${n(-bw / 2 + 70 * s)}" cy="0" r="${n(18 * s)}" fill="#fff"/><circle cx="${n(-bw / 2 + 70 * s)}" cy="0" r="${n(30 * s)}" fill="none" stroke="#fff" stroke-opacity="0.45" stroke-width="${n(4 * s)}"/></g>`
-    return doc(W, H, backdrop(W, H, c.color) + b.svg + ban)
-  }
-  return doc(W, H, backdrop(W, H, c.color) + b.svg + line + subT)
+  return doc(W, H, backdrop(W, H, c.color) + b.svg + line) // logo only: no subtitle/banner, no voice
 }
 
 export function outroSvg (category, t, { W = 1080, H = 1920, handle = '@alkol', cta = 'تابعونا' } = {}) {
@@ -155,12 +147,12 @@ export function outroSvg (category, t, { W = 1080, H = 1920, handle = '@alkol', 
 
 /** Per-category video personality (layout, motion, Ken Burns). Same brand system everywhere. */
 export const REEL_STYLES = {
-  sport: { head: 80, minHead: 54, anim: 'mask', speed: 1, panel: null, kb: 0.12 },
-  economy: { head: 76, minHead: 52, anim: 'mask', speed: 1, panel: null, kb: 0.07, stat: true },
-  politics: { head: 70, minHead: 50, anim: 'fade', speed: 0.7, panel: 'lower', kb: 0.05 },
-  trend: { head: 90, minHead: 60, anim: 'pop', speed: 1.45, panel: null, kb: 0.16 },
-  health: { head: 70, minHead: 50, anim: 'rise', speed: 0.85, panel: 'card', kb: 0.07 },
-  breaking: { head: 80, minHead: 54, anim: 'mask', speed: 1, panel: null, kb: 0.06, banner: true }
+  sport: { head: 88, minHead: 60, anim: 'mask', speed: 1, panel: null, kb: 0.12 },
+  economy: { head: 84, minHead: 58, anim: 'mask', speed: 1, panel: null, kb: 0.07, stat: true },
+  politics: { head: 78, minHead: 56, anim: 'fade', speed: 0.7, panel: 'lower', kb: 0.05 },
+  trend: { head: 98, minHead: 64, anim: 'pop', speed: 1.45, panel: null, kb: 0.16 },
+  health: { head: 78, minHead: 56, anim: 'rise', speed: 0.85, panel: 'card', kb: 0.07 },
+  breaking: { head: 88, minHead: 60, anim: 'mask', speed: 1, panel: null, kb: 0.06, banner: true }
 }
 export const reelStyle = c => REEL_STYLES[brandCategory(c)] || REEL_STYLES.sport
 const STAT_UP = '#00C853'; const STAT_DOWN = '#FF3B30'
@@ -172,10 +164,10 @@ export function itemLayout (item, { W = 1080, H = 1920, category = 'sport' } = {
   const M = (card ? 56 : 72) * s; const pad = card ? 44 * s : 0
   const width = W - 2 * M - 2 * pad
   const bottom = H - 430 * s
-  const body = item.body ? fitText({ text: item.body, width, size: 40 * s, minSize: 32 * s, maxLines: 3, font: 'plex', weight: 500, lh: 1.45 }) : null
+  const body = null // the description is spoken by the voice-over only; the frame shows just the headline
   const head = fitText({ text: item.title, width, size: st.head * s, minSize: st.minHead * s, maxLines: 4, font: 'tajawal', weight: 800, lh: 1.22 })
-  const bodyTop = body ? bottom - body.height : bottom
-  const headTop = bodyTop - (body ? 34 * s : 0) - head.height
+  const bodyTop = bottom
+  const headTop = bottom - head.height
   const hasStat = !!(st.stat && item.stat?.value)
   const statH = hasStat ? 140 * s : 0
   const statTop = headTop - (hasStat ? 26 * s : 0) - statH
@@ -184,7 +176,7 @@ export function itemLayout (item, { W = 1080, H = 1920, category = 'sport' } = {
   return { s, M, pad, width, right, head, headTop, body, bodyTop, tagTop, tagH, statTop, statH, hasStat, bottom, style: st }
 }
 
-/** Item overlay at time t: gradients/panel + category tag (or عاجل banner) + optional stat + headline + body. */
+/** Item overlay at time t: gradients/panel + category tag (or عاجل banner) + optional stat + headline (the description is never drawn). */
 export function itemSvg (category, item, t, { W = 1080, H = 1920 } = {}) {
   const c = cat(category); const L = itemLayout(item, { W, H, category }); const { s, right, style: st } = L
   t *= st.speed
@@ -249,10 +241,6 @@ export function itemSvg (category, item, t, { W = 1080, H = 1920 } = {}) {
       o += `<g opacity="${n(Math.min(1, p * 3))}" transform="translate(${n(right)},${n(cy)}) scale(${n(sc)}) translate(${n(-right)},${n(-cy)})">${txt(base)}</g>`
     } else { const p = eOut(prog(t, a, st.anim === 'fade' ? 0.7 : 0.55)); if (p > 0) o += `<g opacity="${n(p)}">${txt(base + (1 - p) * (st.anim === 'fade' ? 18 : 34) * s)}</g>` }
   })
-  if (L.body) {
-    const bp = eOut(prog(t, t0 + 0.15 + lines.length * stagger + 0.15, 0.5))
-    if (bp > 0) L.body.lines.forEach((line, i) => { o += `<text x="${n(right)}" y="${n(L.bodyTop + L.body.size * (0.92 + i * L.body.lh) + (1 - bp) * 24 * s)}" font-family="${fam('plex')}" font-weight="500" font-size="${n(L.body.size)}" fill="${ink}" fill-opacity="${n((card ? 0.78 : 0.86) * bp)}" text-anchor="end" direction="rtl">${rtlText(line)}</text>` })
-  }
   return doc(W, H, o)
 }
 export const itemAnimEnd = (item, category = 'sport') => (0.65 + 0.2 * 4 + 0.3 + 0.75) / reelStyle(category).speed
@@ -318,22 +306,21 @@ function kenBurns (k, W, H, frames, amp = 0.12) {
 }
 
 // ---------- voice-over ----------
-export const VOICE = { introAt: 1.0, lead: 0.75, tail: 0.85, gain: 1.0 }
+export const VOICE = { lead: 0.6, tail: 0.5, gain: 1.0 } // tail ≈ the transition length: next item starts right after the speech ends
 /**
- * Synthesize the voice-over and stretch segments so text and voice stay in sync:
- * item.duration = max(chosen duration, lead + speech + tail). If that breaks the 3-minute cap, bodies are dropped
- * from the speech; if still too long → error. Returns { spec (copy with new durations), intro, items: [{file,duration}] }.
+ * Synthesize the voice-over (headline + description per item; the intro is NOT spoken) and time every item exactly to its
+ * speech: item.duration = lead + speech + tail (no fixed minimum). If that breaks the 3-minute cap, descriptions are dropped
+ * from the speech; if still too long → error. Returns { spec (copy with new durations), intro: null, items: [{file,duration}] }.
  */
 export async function prepareVoice (spec, { synth = synthesize } = {}) {
   const v = spec.voice.name
-  const label = BRAND_CATEGORIES[spec.category]?.label || ''
-  const intro = spec.voice.intro ? await synth([`الكل ${label}`], v) : null
+  const style = voiceStyle(spec.category) // Gemini delivery per category (ignored by Edge)
   const build = async withBody => {
     const items = []
-    for (const it of spec.items) items.push(await synth(withBody && it.body ? [it.title, it.body] : [it.title], v))
-    const out = { ...spec, items: spec.items.map((it, i) => ({ ...it, duration: +Math.max(it.duration, VOICE.lead + items[i].duration + VOICE.tail).toFixed(2) })) }
-    if (intro) out.introDuration = +Math.max(REEL.intro, VOICE.introAt + intro.duration + 0.5).toFixed(2)
-    return { spec: out, intro, items, bodies: withBody }
+    for (const it of spec.items) items.push(await synth(withBody && it.body ? [it.title, it.body] : [it.title], v, { style }))
+    const out = { ...spec, items: spec.items.map((it, i) => ({ ...it, duration: +(VOICE.lead + items[i].duration + VOICE.tail).toFixed(2) })) }
+    const fellBack = items.find(x => x?.provider === 'edge')
+    return { spec: out, intro: null, items, bodies: withBody, fellBack: fellBack ? fellBack.fallbackReason || 'Gemini' : '' }
   }
   let r = await build(true)
   if (reelTimeline(r.spec).total > REEL.maxTotal && spec.items.some(it => it.body)) r = await build(false)
@@ -357,6 +344,7 @@ export async function renderReel (spec, opts) {
       voiceNote = `التعليق الصوتي ما اشتغلش (${String(e.message || e).slice(0, 120)}) — الفيديو اتعمل بالموسيقى بس`
       console.warn('[reel] voice-over failed:', e.message)
     }
+    if (voice?.fellBack) voiceNote = `صوت Gemini مش متاح دلوقتي (${String(voice.fellBack).slice(0, 90)}) — اتستخدم صوت Edge بدله`
     if (voice && !voice.bodies && spec.items.some(it => it.body)) voiceNote = 'التعليق الصوتي قرا العناوين بس عشان الريل ما يعديش ٣ دقايق'
   }
   const tl = reelTimeline(spec); const cat0 = spec.category
@@ -411,7 +399,7 @@ export async function renderReel (spec, opts) {
   }
   args.push('-f', 'lavfi', '-t', tl.total.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo'); sfxLabels.push(`[${idx}:a]`); idx++
   fl.push(`${sfxLabels.join('')}amix=inputs=${sfxLabels.length}:duration=longest:normalize=0,atrim=0:${tl.total.toFixed(3)}[sfxbus]`)
-  // Voice bus: intro line + one clip per item, each placed after its text has appeared.
+  // Voice bus: one clip per item (none over the intro), each placed after its text has appeared.
   const cues = voice ? voiceCues(voice, tl) : []
   if (cues.length) {
     const vl = []
@@ -461,7 +449,6 @@ export async function renderReel (spec, opts) {
 /** Where each voice clip starts (seconds) on the reel timeline. */
 export function voiceCues (voice, tl) {
   const out = []
-  if (voice.intro) out.push({ t: VOICE.introAt, file: voice.intro.file, duration: voice.intro.duration })
   tl.segments.filter(sg => sg.kind === 'item').forEach((sg, k) => { const v = voice.items[k]; if (v) out.push({ t: +(sg.start + VOICE.lead).toFixed(3), file: v.file, duration: v.duration }) })
   return out
 }

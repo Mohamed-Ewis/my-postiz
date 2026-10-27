@@ -82,7 +82,7 @@
             <ImageUploadField v-model="it.mediaId" :items="library" :types="['image']" @uploaded="onUploaded" />
             <div class="space-y-2">
               <input v-model="it.title" class="input font-semibold" dir="auto" placeholder="عنوان الخبر *" maxlength="160">
-              <textarea v-model="it.body" class="input" rows="2" dir="auto" placeholder="تفاصيل قصيرة (سطر واحد)" maxlength="220" />
+              <textarea v-model="it.body" class="input" rows="2" dir="auto" placeholder="الوصف — بيتقرا صوتيًا بس (مش بيظهر في الفيديو)" maxlength="220" />
               <div v-if="st.category === 'economy'" class="grid grid-cols-3 gap-2 text-sm">
                 <input v-model="it.stat.value" class="input" placeholder="الرقم (مثلاً 48.5)" maxlength="12">
                 <select v-model="it.stat.dir" class="input"><option value="">بدون سهم</option><option value="up">▲ صعود</option><option value="down">▼ هبوط</option></select>
@@ -90,7 +90,8 @@
               </div>
               <div class="flex flex-wrap items-center gap-2 text-sm">
                 <button class="rounded-lg border px-2 py-1" :disabled="shortening === it.key || !it.title" @click="shorten(it)">{{ shortening === it.key ? '⏳' : '✂️' }} اختصر بالـ AI</button>
-                <label class="flex items-center gap-1">⏱ <input v-model.number="it.duration" type="number" min="3" max="20" class="input !w-20 !py-1"> ث</label>
+                <label v-if="!st.voiceOn" class="flex items-center gap-1">⏱ <input v-model.number="it.duration" type="number" min="3" max="20" :placeholder="String(autoDur(it))" class="input !w-20 !py-1"> ث</label>
+                <span v-else class="text-xs text-slate-500">⏱ ≈ {{ Math.round(itemDur(it)) }} ث (تلقائي حسب قراية المذيع)</span>
                 <span v-if="!it.mediaId" class="text-xs text-amber-700">⚠️ محتاج صورة</span>
                 <span v-if="!it.title.trim()" class="text-xs text-amber-700">⚠️ محتاج عنوان</span>
               </div>
@@ -113,11 +114,9 @@
         <div class="rounded-xl border p-2 space-y-2">
           <label class="flex items-center gap-2 font-semibold"><input v-model="st.voiceOn" type="checkbox"> 🎙 تعليق صوتي (مذيع بيقرا الأخبار)</label>
           <div v-if="st.voiceOn" class="flex flex-wrap items-center gap-2">
-            <select v-model="st.voiceName" class="input !w-auto !py-1">
-              <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.label }}</option>
-            </select>
             <button type="button" class="rounded-lg border px-2 py-1" :disabled="previewing" @click="previewVoice">{{ previewing ? '⏳' : '🔈' }} اسمع الصوت</button>
-            <span class="text-xs text-slate-500">مدة كل خبر بتطول لوحدها لحد ما المذيع يخلص قراية</span>
+            <span class="text-xs text-slate-500">المذيع بيقرا العنوان + الوصف (الوصف مش بيظهر على الفيديو)، والمقدمة بالموسيقى واللوجو بس من غير كلام</span>
+            <span class="basis-full text-xs text-slate-500">✨ صوت مذيع مصري طبيعي (Gemini) بنبرة حسب الفئة. لو الحد المجاني خلص بيرجع تلقائي لصوت احتياطي.</span>
           </div>
           <p v-if="voiceMsg" class="text-xs text-amber-700">{{ voiceMsg }}</p>
         </div>
@@ -128,8 +127,12 @@
           <label>الصوت<input v-model.number="st.musicVolume" type="range" min="0.05" max="1" step="0.05" class="w-full"></label>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <label class="flex items-center gap-1">مدة كل خبر <input v-model.number="bulkDur" type="number" min="3" max="20" class="input !w-20 !py-1"> ث</label>
-          <button class="rounded-lg border px-2 py-1" @click="st.items.forEach(it => (it.duration = bulkDur))">طبّق على الكل</button>
+          <template v-if="!st.voiceOn">
+            <label class="flex items-center gap-1">مدة كل خبر <input v-model.number="bulkDur" type="number" min="3" max="20" class="input !w-20 !py-1" placeholder="تلقائي"> ث</label>
+            <button class="rounded-lg border px-2 py-1" @click="st.items.forEach(it => (it.duration = bulkDur || ''))">طبّق على الكل</button>
+            <button class="rounded-lg border px-2 py-1" @click="st.items.forEach(it => (it.duration = '')); bulkDur = ''">تلقائي</button>
+          </template>
+          <span v-else class="text-xs text-slate-500">كل خبر بيستمر بمدة قراية المذيع (عنوان + وصف) والخبر اللي بعده بيبدأ أول ما يخلص</span>
           <span class="ms-auto" :class="overCap ? 'text-red-600 font-bold' : 'text-slate-500'">⏱ {{ fmtDur(total) }} / 3:00</span>
         </div>
         <label class="flex items-center gap-2"><input v-model="st.draft" type="checkbox"> ⚡ جودة تجريبية (أسرع)</label>
@@ -218,22 +221,25 @@ const cats = [
 const sources = [{ key: 'manual', icon: '✍️', label: 'يدوي', hint: 'اكتب الأخبار وارفع صورها بنفسك' }, { key: 'ai', icon: '🤖', label: 'تجميع بالـ AI', hint: 'أخبار حقيقية من الفيدات بتاعتك + Google News، والـ AI يرتّب ويختصر' }]
 const catOf = k => cats.find(c => c.key === k) || cats[0]
 let key = Date.now()
-const newItem = (o = {}) => ({ key: ++key, mediaId: null, title: '', body: '', duration: 7, stat: { value: '', dir: '', label: '' }, source: '', url: '', ...o })
-const fresh = () => ({ step: 1, category: '', source: '', items: [], handle: '@alkol', cta: 'تابعونا', sfx: true, categoryMusic: true, music: null, musicVolume: 0.25, voiceOn: true, voiceName: 'ar-EG-ShakirNeural', draft: false, jobId: null, videoMediaId: null, videoUrl: '', videoThumb: '', renderedSig: '', caption: '', captionSig: '', accountIds: [], when: 'now', publishAt: '' })
+const newItem = (o = {}) => ({ key: ++key, mediaId: null, title: '', body: '', duration: '', stat: { value: '', dir: '', label: '' }, source: '', url: '', ...o })
+const fresh = () => ({ step: 1, category: '', source: '', items: [], handle: '@alkol', cta: 'تابعونا', sfx: true, categoryMusic: true, music: null, musicVolume: 0.25, voiceOn: true, draft: false, jobId: null, videoMediaId: null, videoUrl: '', videoThumb: '', renderedSig: '', caption: '', captionSig: '', accountIds: [], when: 'now', publishAt: '' })
 const st = reactive(fresh())
 const library = computed(() => props.library)
 function onUploaded (m) { emit('uploaded', m) }
 
 // ---- duration / validation
-// With voice-over each item lasts at least as long as its reading (≈1.6 words/s at the anchor pace).
-const speech = t => { const w = String(t || '').trim().split(/\s+/).filter(Boolean).length; return w ? w / 1.6 + 0.5 : 0 }
-const itemDur = it => { const d = Number(it.duration) || 7; return st.voiceOn ? Math.max(d, 1.6 + speech(it.title) + (it.body ? 0.45 + speech(it.body) : 0)) : d }
-const total = computed(() => st.items.length ? (st.voiceOn ? 3 : 2.5) + 3 + st.items.reduce((a, it) => a + itemDur(it), 0) - 0.5 * (st.items.length + 1) : 0)
+// Mirrors the server (server/lib/video/reel.js). With voice-over each item lasts exactly lead + speech + tail
+// (speech ≈ 2 words/s for headline + description); without it: manual value or automatic from the headline word count.
+const words = t => String(t || '').trim().split(/\s+/).filter(Boolean).length
+const speech = t => { const w = words(t); return w ? w / 2 + 0.3 : 0 }
+const autoDur = it => Math.min(10, Math.max(3.5, 2 + 0.45 * words(it.title)))
+const itemDur = it => st.voiceOn ? 0.6 + speech(it.title) + (it.body ? 0.2 + speech(it.body) : 0) + 0.5 : (Number(it.duration) > 0 ? Math.min(20, Math.max(3, Number(it.duration))) : autoDur(it))
+const total = computed(() => st.items.length ? 2.5 + 3 + st.items.reduce((a, it) => a + itemDur(it), 0) - 0.5 * (st.items.length + 1) : 0)
 const overCap = computed(() => total.value > 180)
 const fmtDur = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
 const fmtDate = d => new Date(d).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const validItems = computed(() => st.items.filter(it => it.mediaId && it.title.trim()))
-const sig = computed(() => JSON.stringify([st.category, st.handle, st.cta, st.sfx, st.categoryMusic, st.voiceOn, st.voiceName, st.music, st.musicVolume, st.draft, validItems.value.map(({ key: _k, source: _s, url: _u, ...it }) => it)]))
+const sig = computed(() => JSON.stringify([st.category, st.handle, st.cta, st.sfx, st.categoryMusic, st.voiceOn, st.music, st.musicVolume, st.draft, validItems.value.map(({ key: _k, source: _s, url: _u, ...it }) => it)]))
 const stale = computed(() => !!st.renderedSig && st.renderedSig !== sig.value)
 function stepValid (n) {
   if (n === 1) return !!(st.category && st.source)
@@ -284,14 +290,14 @@ async function addPicked () {
 }
 
 // ---- render
-const rendering = ref(false); const err = ref(''); const job = ref(null); const bulkDur = ref(7)
+const rendering = ref(false); const err = ref(''); const job = ref(null); const bulkDur = ref('')
 const videoUrl = computed(() => st.videoUrl)
 async function render () {
   err.value = ''; rendering.value = true
   const s = sig.value
   try {
-    const spec = { template: 'news-reel', category: st.category, handle: st.handle, cta: st.cta, sfx: st.sfx, categoryMusic: st.categoryMusic, voice: { enabled: st.voiceOn, name: st.voiceName }, quality: st.draft ? 'draft' : 'hd',
-      items: validItems.value.map(it => ({ mediaId: it.mediaId, title: it.title, body: it.body, duration: it.duration, stat: st.category === 'economy' && String(it.stat?.value || '').trim() ? it.stat : null })),
+    const spec = { template: 'news-reel', category: st.category, handle: st.handle, cta: st.cta, sfx: st.sfx, categoryMusic: st.categoryMusic, voice: { enabled: st.voiceOn }, quality: st.draft ? 'draft' : 'hd',
+      items: validItems.value.map(it => ({ mediaId: it.mediaId, title: it.title, body: it.body, duration: st.voiceOn || !(Number(it.duration) > 0) ? undefined : it.duration, stat: st.category === 'economy' && String(it.stat?.value || '').trim() ? it.stat : null })),
       music: st.music ? { mediaId: st.music, volume: st.musicVolume } : null }
     const j = await $fetch('/api/video/jobs', { method: 'POST', body: { title: `ريل ${catOf(st.category).label} — ${validItems.value[0].title}`, spec } })
     st.jobId = j.id; job.value = j; emit('rendered')
@@ -312,15 +318,12 @@ async function poll () {
 }
 
 // ---- voice-over
-const voices = [
-  { id: 'ar-SA-HamedNeural', label: 'حامد — رجالي (فصحى)' }, { id: 'ar-SA-ZariyahNeural', label: 'زارية — حريمي (فصحى)' },
-  { id: 'ar-EG-ShakirNeural', label: 'شاكر — رجالي (مصري)' }, { id: 'ar-EG-SalmaNeural', label: 'سلمى — حريمي (مصري)' }
-]
+// One fixed voice, decided by the server (Gemini news host; Edge only as a hidden last resort).
 const previewing = ref(false); const voiceMsg = ref(''); let previewAudio = null
 async function previewVoice () {
   previewing.value = true; voiceMsg.value = ''
   try {
-    const blob = await $fetch('/api/video/tts-preview', { query: { voice: st.voiceName }, responseType: 'blob' })
+    const blob = await $fetch('/api/video/tts-preview', { responseType: 'blob' })
     previewAudio?.pause(); previewAudio = new Audio(URL.createObjectURL(blob)); await previewAudio.play()
   } catch (e) { voiceMsg.value = (e.data?.statusMessage || e.message) + ' — لو فضلت كده الفيديو هيتعمل بالموسيقى بس' } finally { previewing.value = false }
 }
@@ -354,7 +357,7 @@ watch(st, () => {
   try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...st, savedAt: Date.now() })) } catch {}
 }, { deep: true })
 function restoreDraft () {
-  try { const d = JSON.parse(localStorage.getItem(DRAFT_KEY)); delete d.savedAt; Object.assign(st, fresh(), d); st.items.forEach(it => { it.key = ++key; it.stat ||= { value: '', dir: '', label: '' } }) } catch {}
+  try { const d = JSON.parse(localStorage.getItem(DRAFT_KEY)); delete d.savedAt; delete d.voiceName; Object.assign(st, fresh(), d); st.items.forEach(it => { it.key = ++key; it.stat ||= { value: '', dir: '', label: '' }; if (it.duration === 7) it.duration = '' /* old fixed default → automatic */ }) } catch {}
   draftPrompt.value = null
   if (st.jobId && !st.videoMediaId) poll()
 }

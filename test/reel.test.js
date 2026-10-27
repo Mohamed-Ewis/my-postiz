@@ -17,6 +17,13 @@ test('reel spec: validation, defaults, category swap, 3-minute cap', () => {
   assert.throws(() => R.normalizeReelSpec({ items: Array.from({ length: 12 }, (_, i) => ({ mediaId: 'm' + i, title: 't', duration: 20 })) }), /دقايق/)
 })
 
+test('automatic duration without voice-over: from headline word count, explicit value still honored', () => {
+  const mk = (title, duration) => R.normalizeReelSpec({ items: [{ file: 'a.jpg', title, duration }] }, { allowFiles: true }).items[0].duration
+  assert.equal(R.autoDuration(''), 3.5); assert.equal(R.autoDuration('كلمتين فقط'), 3.5); assert.equal(R.autoDuration('كلمة '.repeat(8)), 5.6); assert.equal(R.autoDuration('كلمة '.repeat(60)), 10)
+  assert.equal(mk('كلمة '.repeat(8)), 5.6); assert.equal(mk('كلمة '.repeat(8), ''), 5.6); assert.equal(mk('كلمة '.repeat(8), 12), 12) // manual override only when explicitly given
+  assert.ok(mk('كلمة '.repeat(3)) < mk('كلمة '.repeat(12)))
+})
+
 test('reel timeline: intro → items → outro with overlapping transitions, HUD windows and SFX cues', () => {
   const tl = R.reelTimeline({ items: [{ duration: 9 }, { duration: 8.5 }, { duration: 8.5 }] })
   assert.deepEqual(tl.segments.map(s => [s.kind, s.start]), [['intro', 0], ['item', 2], ['item', 10.5], ['item', 18.5], ['outro', 26.5]])
@@ -39,12 +46,15 @@ test('reel graphics render (intro/item/hud/outro) for every category; RTL progre
     }
   }
   assert.match(R.introSvg('sport', 2), /#00C853/); assert.match(R.introSvg('breaking', 2), /#FF1F1F/)
+  for (const c of ['sport', 'breaking', 'health']) assert.doesNotMatch(R.introSvg(c, 2.4), /أهم أخبار|اليوم/) // logo only: no subtitle text
   assert.match(R.itemSvg('sport', { title: 'عنوان' }, 0), /<rect/); assert.doesNotMatch(R.itemSvg('sport', { title: 'عنوان' }, 0), /عنوان/) // hidden at t=0
   assert.match(R.itemSvg('sport', { title: 'عنوان' }, 3), /عنوان/)
+  assert.doesNotMatch(R.itemSvg('sport', { title: 'عنوان', body: 'وصف سري لا يظهر' }, 4), /وصف|سري/) // the description is never drawn
+  for (const c of ['sport', 'economy', 'politics', 'trend', 'health', 'breaking']) assert.doesNotMatch(R.itemSvg(c, { title: 'عنوان', body: 'وصف سري لا يظهر' }, 5), /وصف سري/)
   const g = R.hudGeometry(3)
   assert.ok(g.segs[0].x > g.segs[1].x && g.segs[1].x > g.segs[2].x)
   const L = R.itemLayout({ title: 'عنوان طويل جدا '.repeat(8), body: 'نص '.repeat(40) })
-  assert.ok(L.head.lines.length <= 4 && L.body.lines.length <= 3 && L.tagTop > 320)
+  assert.ok(L.head.lines.length <= 4 && L.body === null && L.tagTop > 320)
 })
 
 test('reel SFX are synthesized locally', async () => {
@@ -74,7 +84,7 @@ test('category reel templates: styles, layouts without overlap, economy stat, br
     const L = R.itemLayout(item, { category: c })
     assert.ok(L.tagTop + L.tagH < (L.hasStat ? L.statTop : L.headTop), c)
     assert.ok(!L.hasStat || L.statTop + L.statH < L.headTop, c)
-    assert.ok(L.headTop + L.head.height <= L.bodyTop && L.bodyTop + L.body.height <= 1920 - 420, c)
+    assert.equal(L.body, null, c); assert.ok(L.headTop + L.head.height <= 1920 - 420 + 0.01, c) // headline ends at the safe-area line: no empty gap above it, no body block
     assert.ok(L.tagTop > 260, c + ' clears the watermark')
     const end = R.itemAnimEnd(item, c); assert.equal(R.itemSvg(c, item, end), R.itemSvg(c, item, end + 2), c + ' settles before hold')
   }
